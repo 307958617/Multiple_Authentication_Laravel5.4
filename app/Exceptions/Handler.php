@@ -59,7 +59,15 @@ class Handler extends ExceptionHandler
         if ($request->expectsJson()) {
             return response()->json(['error' => 'Unauthenticated.'], 401);
         }
-
-        return redirect()->guest(route('login'));
+        $guard = array_get($exception->guards(),0);//取得没有通过验证的是哪个guard
+        switch ($guard){
+            case 'admin'://如果是auth中间件没通过验证的guard是admin的话
+                return redirect()->guest(route('admin.login'));
+            break;
+            case '': //如果是auth中间件没通过验证的guard是空的话，即web（因为默认为web）
+//            default://默认值，即web。因此用这代替case '':也行的。
+                return redirect()->guest(route('login'));
+            break;
+        }
     }
 }
