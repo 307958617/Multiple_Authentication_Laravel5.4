@@ -410,3 +410,42 @@
         }
         return $next($request);
     }
+#### 4、修正退出登录的时候，user和admin同时都退出的问题：
+##### ①、首先解决user退出登录时，只退出user的，不影响admin用户，那么就需要到Auth->LoginController.php里面重构AuthenticatesUsers里面的logout()方法：
+    public function logout()
+    {  //里面需要去掉$request->session()->flush();$request->session()->regenerate();不然会影响所有的session的
+        Auth::guard('web')->logout();
+        return redirect('/');
+    }
+##### ②、然后需要到web.php路由文件为logout()方法添加一条路由：
+    Route::post('/user/logout', 'Auth\LoginController@logout')->name('user.logout');
+##### ③、同样需要在Auth->Admin->LoginController里面重构logout()方法：
+    public function logout()
+    {  //里面需要去掉$request->session()->flush();$request->session()->regenerate();不然会影响所有的session的
+        Auth::guard('admin')->logout();
+        return redirect('/');
+    }
+##### ④、如果要让admin的logout起作用，还需要在web.php路由文件里面给它配置一条路由：
+    Route::post('/logout','Auth\Admin\LoginController@logout')->name('admin.logout');
+##### ⑤、由于user和admin的页面都是引用了同一个layouts->app.php模板文件，那么就需要判断退出登录时该使用那条路由才能正确退出，修改app.blade退出登录的代码如下：
+    @if(substr(Auth::guard()->getName(),6,3) == 'adm') //这是判断当前使用的guard对应的session名字来判断是admin还是user。
+        <a href="{{ route('admin.logout') }}"
+           onclick="event.preventDefault();
+             document.getElementById('logout-form').submit();">
+            Logout
+        </a>
+    
+        <form id="logout-form" action="{{ route('admin.logout') }}" method="POST" style="display: none;">
+            {{ csrf_field() }}
+        </form>
+    @else
+        <a href="{{ route('user.logout') }}"
+           onclick="event.preventDefault();
+             document.getElementById('logout-form').submit();">
+            Logout
+        </a>
+    
+        <form id="logout-form" action="{{ route('user.logout') }}" method="POST" style="display: none;">
+            {{ csrf_field() }}
+        </form>
+    @endif

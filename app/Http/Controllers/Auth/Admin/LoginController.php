@@ -61,5 +61,11 @@ class LoginController extends Controller
         //如果失败，那么就返回登录界面，并且携带填写的数据回去。
         return back()->withInput($request->only('email','remember'));
     }
+
+    public function logout()
+    {
+        Auth::guard('admin')->logout();
+        return redirect('/');
+    }
 }
 

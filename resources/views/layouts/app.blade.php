@@ -53,15 +53,27 @@
 
                                 <ul class="dropdown-menu" role="menu">
                                     <li>
-                                        <a href="{{ route('logout') }}"
-                                            onclick="event.preventDefault();
-                                                     document.getElementById('logout-form').submit();">
-                                            Logout
-                                        </a>
+                                        @if(substr(Auth::guard()->getName(),6,3) == 'adm')
+                                            <a href="{{ route('admin.logout') }}"
+                                               onclick="event.preventDefault();
+                                                 document.getElementById('logout-form').submit();">
+                                                Logout
+                                            </a>
 
-                                        <form id="logout-form" action="{{ route('logout') }}" method="POST" style="display: none;">
-                                            {{ csrf_field() }}
-                                        </form>
+                                            <form id="logout-form" action="{{ route('admin.logout') }}" method="POST" style="display: none;">
+                                                {{ csrf_field() }}
+                                            </form>
+                                        @else
+                                            <a href="{{ route('user.logout') }}"
+                                               onclick="event.preventDefault();
+                                                 document.getElementById('logout-form').submit();">
+                                                Logout
+                                            </a>
+
+                                            <form id="logout-form" action="{{ route('user.logout') }}" method="POST" style="display: none;">
+                                                {{ csrf_field() }}
+                                            </form>
+                                        @endif
                                     </li>
                                 </ul>
                             </li>

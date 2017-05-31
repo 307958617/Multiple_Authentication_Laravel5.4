@@ -18,10 +18,12 @@ Route::get('/', function () {
 Auth::routes();
 
 Route::get('/home', 'HomeController@index')->name('home');
+Route::post('/user/logout', 'Auth\LoginController@logout')->name('user.logout');
 
 Route::prefix('admin')->group(function (){
     Route::get('/', 'AdminController@index')->name('admin.dashboard');
     Route::get('/login','Auth\Admin\LoginController@showLoginForm')->name('admin.login');
     Route::post('/login','Auth\Admin\LoginController@login')->name('admin.login.submit');
+    Route::post('/logout','Auth\Admin\LoginController@logout')->name('admin.logout');
 });
 
