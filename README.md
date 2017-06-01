@@ -449,3 +449,316 @@
             {{ csrf_field() }}
         </form>
     @endif
+### 十四、实现admin用户忘记密码和重置密码功能：
+#### 1、要实现此功能需要先了解laravel自带的user用户忘记密码和重置密码功能的步骤：
+##### 步骤①、在登录界面点击‘Forgot Your Password?’即‘忘记密码’链接进入到‘发送验证邮箱界面’；
+##### 步骤②、在‘发送验证邮箱界面’里面输入注册时的邮箱，点击‘Send Password Reset Link’按钮，发送验证消息到输入的邮箱地址；
+##### 步骤③、用户登录自己的邮箱，查看刚刚发送的验证信息邮件，点击里面的url链接地址，进入到‘重置密码界面’；
+##### 步骤④、用户在‘重置密码界面’输入密码后，点击重置密码按钮，将重新设置的密码，和token保存到数据表中，并登录当前用户到dashboard。
+#### 2、那么就来实现admin用户忘记密码重置密码功能了：
+##### ①、修改views->auth->admin->login.blade.php的忘记密码链接地址：
+    <a class="btn btn-link" href="{{ route('admin.password.request') }}"> //将route('password.request')改为：route('admin.password.request')
+        Forgot Your Password?
+    </a>
+##### ②、同时在web.php路由文件添加名为：admin.password.request的路由：
+    Route::prefix('admin')->group(function (){
+        Route::get('/', 'AdminController@index')->name('admin.dashboard');
+        Route::get('/login','Auth\Admin\LoginController@showLoginForm')->name('admin.login');
+        Route::post('/login','Auth\Admin\LoginController@login')->name('admin.login.submit');
+        Route::post('/logout','Auth\Admin\LoginController@logout')->name('admin.logout');
+    
+        Route::get('/password/reset','Auth\Admin\ForgotPasswordController@showLinkRequestForm')->name('admin.password.request');//此为新添加的路由
+    });
+##### ③、同时创建Auth\Admin\ForgotPasswordController controller，内容为（可以复制user的ForgotPasswordController修改一下即可）：
+    <?php
+    
+    namespace App\Http\Controllers\Auth\Admin;
+    
+    use App\Http\Controllers\Controller;
+    use Illuminate\Foundation\Auth\SendsPasswordResetEmails;
+    
+    class ForgotPasswordController extends Controller
+    {
+        use SendsPasswordResetEmails;
+        
+        public function __construct()
+        {
+            $this->middleware('guest:admin');//修改为必须是admin用户
+        }
+    
+        public function showLinkRequestForm() //重构SendsPasswordResetEmails里面的该方法
+        {
+            return view('auth.admin.passwords.email'); //修改为admin用户存放重置密码视图文件
+        }
+        
+        public function broker() //重构SendsPasswordResetEmails里面的该方法
+        {
+            return Password::broker('admins');//这里对应的是config->auth.app里面配置的passwords的admins，表示使用的是admin用户
+        }
+    }
+##### ④、auth->admin->passwords->email.blade.php文件内容为：
+    @extends('layouts.app')
+    
+    @section('content')
+    <div class="container">
+        <div class="row">
+            <div class="col-md-8 col-md-offset-2">
+                <div class="panel panel-default">
+                    <div class="panel-heading">Admin Reset Password</div>//修改为Admin的标记
+                    <div class="panel-body">
+                        @if (session('status'))
+                            <div class="alert alert-success">
+                                {{ session('status') }}
+                            </div>
+                        @endif
+    
+                        <form class="form-horizontal" role="form" method="POST" action="{{ route('admin.password.email') }}">//这里必须换成admin的提交路径
+                            {{ csrf_field() }}
+    
+                            <div class="form-group{{ $errors->has('email') ? ' has-error' : '' }}">
+                                <label for="email" class="col-md-4 control-label">E-Mail Address</label>
+    
+                                <div class="col-md-6">
+                                    <input id="email" type="email" class="form-control" name="email" value="{{ old('email') }}" required>
+    
+                                    @if ($errors->has('email'))
+                                        <span class="help-block">
+                                            <strong>{{ $errors->first('email') }}</strong>
+                                        </span>
+                                    @endif
+                                </div>
+                            </div>
+    
+                            <div class="form-group">
+                                <div class="col-md-6 col-md-offset-4">
+                                    <button type="submit" class="btn btn-primary">
+                                        Send Password Reset Link
+                                    </button>
+                                </div>
+                            </div>
+                        </form>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+    @endsection
+##### ⑤、到web.php路径文件添加一条名为：admin.password.email的路由：
+    Route::prefix('admin')->group(function (){
+        Route::get('/', 'AdminController@index')->name('admin.dashboard');
+        Route::get('/login','Auth\Admin\LoginController@showLoginForm')->name('admin.login');
+        Route::post('/login','Auth\Admin\LoginController@login')->name('admin.login.submit');
+        Route::post('/logout','Auth\Admin\LoginController@logout')->name('admin.logout');
+    
+        Route::get('/password/reset','Auth\Admin\ForgotPasswordController@showLinkRequestForm')->name('admin.password.request');
+        Route::post('/password/email','Auth\Admin\ForgotPasswordController@sendResetLinkEmail')->name('admin.password.email');//此为新增加的路由
+    });
+##### ⑥、！！重点，难点来了！！实现如何发送邮件，要理解，必须一步步深入进去：
+    1、实现进入ForgotPasswordController，里面有use SendsPasswordResetEmails；
+    2、进入Illuminate\Foundation\Auth\SendsPasswordResetEmails,里面有sendResetLinkEmail方法；
+    3、sendResetLinkEmail()方法里面有sendResetLink()方法，那么这个方法是在Illuminate\Auth\Passwords\PasswordBroker里面；
+    *4、sendResetLink()方法里面又有sendPasswordResetNotification()方法，
+        $user->sendPasswordResetNotification(  //由此可看出该方法是依赖于Model的，所以需要在Admin Model里面重构该发送邮件的方法，这是重点，必须注意。
+           $this->tokens->create($user)
+        );
+    5、sendPasswordResetNotification()方法位于：Illuminate\Contracts\Auth\CanResetPassword里面：
+        public function sendPasswordResetNotification($token)
+        {
+            $this->notify(new ResetPasswordNotification($token));
+        }
+##### ⑦、在Admin Model里面重构sendPasswordResetNotification()方法：
+    public function sendPasswordResetNotification($token)
+    {
+        $this->notify(new AdminResetPasswordNotification($token));//这是需要由new ResetPasswordNotification($token)改成new AdminResetPasswordNotification($token)
+    }
+##### ⑧、创建AdminResetPasswordNotification，执行如下命令：
+    php artisan make:notification AdminResetPasswordNotification
+##### ⑨、内容为：
+    <?php
+    
+    namespace App\Notifications;
+    
+    use Illuminate\Bus\Queueable;
+    use Illuminate\Notifications\Notification;
+    use Illuminate\Contracts\Queue\ShouldQueue;
+    use Illuminate\Notifications\Messages\MailMessage;
+    
+    class AdminResetPasswordNotification extends Notification
+    {
+        use Queueable;
+    
+        public $token;//这里需要用public 申明
+        
+        public function __construct($token)
+        {
+            $this->token =$token;
+        }
+         
+        public function via($notifiable)
+        {
+            return ['mail'];
+        }
+         
+        public function toMail($notifiable)
+        {
+            return (new MailMessage)
+                ->line('请点击链接进入修改密码界面')
+                ->action('修改密码', route('admin.password.reset',$this->token))//链接到修改密码界面,注意，token不要忘记携带了
+                ->line('Thank you for using our application!');
+        }
+    
+        /**
+         * Get the array representation of the notification.
+         *
+         * @param  mixed  $notifiable
+         * @return array
+         */
+        public function toArray($notifiable)
+        {
+            return [
+                //
+            ];
+        }
+    }
+
+##### ⑩、再为修改密码界面添加一条名为：admin.password.reset的路由：
+    Route::prefix('admin')->group(function (){
+        Route::get('/', 'AdminController@index')->name('admin.dashboard');
+        Route::get('/login','Auth\Admin\LoginController@showLoginForm')->name('admin.login');
+        Route::post('/login','Auth\Admin\LoginController@login')->name('admin.login.submit');
+        Route::post('/logout','Auth\Admin\LoginController@logout')->name('admin.logout');
+    
+        Route::get('/password/reset','Auth\Admin\ForgotPasswordController@showLinkRequestForm')->name('admin.password.request');
+        Route::post('/password/email','Auth\Admin\ForgotPasswordController@sendResetLinkEmail')->name('admin.password.email');
+        Route::get('/password/reset/{token}','Auth\Admin\ResetPasswordController@showResetForm')->name('admin.password.reset');//此为新增加的路由
+    });
+##### ⑪、创建Auth\Admin\ResetPasswordController，内容为：
+    <?php
+    
+    namespace App\Http\Controllers\Auth\Admin;
+    
+    use App\Http\Controllers\Controller;
+    use Illuminate\Foundation\Auth\ResetsPasswords;
+    use Illuminate\Http\Request;
+    use Illuminate\Support\Facades\Auth;
+    use Illuminate\Support\Facades\Password;
+    
+    class ResetPasswordController extends Controller
+    { 
+        use ResetsPasswords;   
+        
+        protected $redirectTo = '/admin'; //修改为admin
+         
+        public function __construct()
+        {
+            $this->middleware('guest:admin');//添加admin guard
+        }
+    
+        public function showResetForm(Request $request, $token = null)//重构ResetsPasswords里面的该方法
+        {
+            return view('auth.admin.passwords.reset')->with(   //将auth.passwords.reset改为auth.admin.passwords.reset
+                ['token' => $token, 'email' => $request->email]
+            );
+        }
+    
+        public function broker() //重构ResetsPasswords里面的该方法
+        {
+            return Password::broker('admins');
+        }
+    
+        protected function guard()//重构ResetsPasswords里面的该方法
+        {
+            return Auth::guard('admin');
+        }
+    }
+
+##### ⑫、创建auth\admin\passwords\reset.blade.php视图文件，内容：
+    @extends('layouts.app')
+    
+    @section('content')
+    <div class="container">
+        <div class="row">
+            <div class="col-md-8 col-md-offset-2">
+                <div class="panel panel-default">
+                    <div class="panel-heading">Admin Reset Password</div>//改标记Admin
+    
+                    <div class="panel-body">
+                        @if (session('status'))
+                            <div class="alert alert-success">
+                                {{ session('status') }}
+                            </div>
+                        @endif
+    
+                        <form class="form-horizontal" role="form" method="POST" action="{{ route('admin.password.request') }}">//admin修改密码的提交路径
+                            {{ csrf_field() }}
+    
+                            <input type="hidden" name="token" value="{{ $token }}">
+    
+                            <div class="form-group{{ $errors->has('email') ? ' has-error' : '' }}">
+                                <label for="email" class="col-md-4 control-label">E-Mail Address</label>
+    
+                                <div class="col-md-6">
+                                    <input id="email" type="email" class="form-control" name="email" value="{{ $email or old('email') }}" required autofocus>
+    
+                                    @if ($errors->has('email'))
+                                        <span class="help-block">
+                                            <strong>{{ $errors->first('email') }}</strong>
+                                        </span>
+                                    @endif
+                                </div>
+                            </div>
+    
+                            <div class="form-group{{ $errors->has('password') ? ' has-error' : '' }}">
+                                <label for="password" class="col-md-4 control-label">Password</label>
+    
+                                <div class="col-md-6">
+                                    <input id="password" type="password" class="form-control" name="password" required>
+    
+                                    @if ($errors->has('password'))
+                                        <span class="help-block">
+                                            <strong>{{ $errors->first('password') }}</strong>
+                                        </span>
+                                    @endif
+                                </div>
+                            </div>
+    
+                            <div class="form-group{{ $errors->has('password_confirmation') ? ' has-error' : '' }}">
+                                <label for="password-confirm" class="col-md-4 control-label">Confirm Password</label>
+                                <div class="col-md-6">
+                                    <input id="password-confirm" type="password" class="form-control" name="password_confirmation" required>
+    
+                                    @if ($errors->has('password_confirmation'))
+                                        <span class="help-block">
+                                            <strong>{{ $errors->first('password_confirmation') }}</strong>
+                                        </span>
+                                    @endif
+                                </div>
+                            </div>
+    
+                            <div class="form-group">
+                                <div class="col-md-6 col-md-offset-4">
+                                    <button type="submit" class="btn btn-primary">
+                                        Reset Password
+                                    </button>
+                                </div>
+                            </div>
+                        </form>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+    @endsection
+
+##### ⑬、再到web.php路由文件添加一条名为：admin.password.request的Post路由：
+    Route::prefix('admin')->group(function (){
+        Route::get('/', 'AdminController@index')->name('admin.dashboard');
+        Route::get('/login','Auth\Admin\LoginController@showLoginForm')->name('admin.login');
+        Route::post('/login','Auth\Admin\LoginController@login')->name('admin.login.submit');
+        Route::post('/logout','Auth\Admin\LoginController@logout')->name('admin.logout');
+    
+        Route::get('/password/reset','Auth\Admin\ForgotPasswordController@showLinkRequestForm')->name('admin.password.request');
+        Route::post('/password/email','Auth\Admin\ForgotPasswordController@sendResetLinkEmail')->name('admin.password.email');
+        Route::get('/password/reset/{token}','Auth\Admin\ResetPasswordController@showResetForm')->name('admin.password.reset');
+        Route::post('/password/reset','Auth\Admin\ResetPasswordController@reset'); //此为新增加的路由。
+    });
